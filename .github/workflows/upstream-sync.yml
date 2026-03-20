@@ -226,14 +226,20 @@ jobs:
           ${COMMIT_LOG}
           \`\`\`"
 
-          gh pr create \
-            --base main \
-            --head "${SYNC_BRANCH}" \
-            --title "${TITLE}" \
-            --body "${BODY}" \
-            --label "upstream-sync" 2>/dev/null || \
-          gh pr create \
-            --base main \
-            --head "${SYNC_BRANCH}" \
-            --title "${TITLE}" \
-            --body "${BODY}"
+          # Use REST API directly — gh pr create has known issues with
+          # branch names containing slashes (cli/cli#10857, #11041).
+          PR_URL=$(gh api repos/${{ github.repository }}/pulls \
+            --method POST \
+            --field base=main \
+            --field head="${SYNC_BRANCH}" \
+            --field title="${TITLE}" \
+            --field body="${BODY}" \
+            --jq '.html_url')
+
+          echo "::notice::PR created: ${PR_URL}"
+
+          # Try to add the upstream-sync label (non-fatal if label doesn't exist)
+          PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+            --method POST \
+            --field labels[]="upstream-sync" 2>/dev/null || true
