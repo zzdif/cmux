@@ -1,0 +1,245 @@
+name: Upstream Sync
+
+# Fetches latest changes from manaflow-ai/cmux and opens a PR for review.
+# Runs weekly (Monday 09:00 UTC) and can be triggered manually.
+#
+# Branch strategy (Option 1 — Direct Upstream PRs):
+#   - fork/main    = reviewed mirror of upstream (never commit directly)
+#   - fork/personal = long-lived branch for personal customizations
+#   - fork/contrib/* = feature branches for upstream contributions (branch from main)
+#   - fork/upstream-sync/* = automated sync branches (created by this workflow)
+
+on:
+  schedule:
+    - cron: '0 8 * * 0' # Every Sunday at 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      upstream_branch:
+        description: 'Upstream branch to sync from'
+        required: false
+        default: 'main'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          # A fine-grained PAT with Contents + Workflows read/write is required
+          # because the sync branch includes upstream's .github/workflows/ files.
+          # GITHUB_TOKEN cannot push branches that modify workflow files.
+          token: ${{ secrets.FORK_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git || true
+          git fetch upstream
+
+      - name: Determine upstream branch
+        id: branch
+        run: |
+          UPSTREAM_BRANCH="${{ github.event.inputs.upstream_branch || 'main' }}"
+          echo "upstream_branch=${UPSTREAM_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for new commits
+        id: check
+        run: |
+          UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
+          LOCAL_SHA=$(git rev-parse HEAD)
+          UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
+
+          # Check if upstream has commits not reachable from our main.
+          # Our main = upstream + pipeline overlay, so we use merge-base to
+          # determine if upstream has advanced beyond what we already have.
+          UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
+          MERGE_BASE=$(git merge-base HEAD "upstream/${UPSTREAM_BRANCH}")
+
+          if [ "$UPSTREAM_SHA" = "$MERGE_BASE" ]; then
+            # upstream/main is an ancestor of our HEAD — nothing new
+            echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Fork already contains all upstream commits"
+          else
+            COMMIT_COUNT=$(git rev-list --count "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}")
+            echo "already_up_to_date=false" >> "$GITHUB_OUTPUT"
+            echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+            echo "upstream_sha_short=$(echo $UPSTREAM_SHA | cut -c1-8)" >> "$GITHUB_OUTPUT"
+            echo "::notice::Found ${COMMIT_COUNT} new commits from upstream (since merge-base ${MERGE_BASE:0:8})"
+          fi
+
+      - name: Check fork main divergence
+        id: divergence
+        if: steps.check.outputs.already_up_to_date != 'true'
+        run: |
+          UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
+
+          # Count commits on fork/main that are NOT in upstream
+          # (These would indicate someone committed directly to fork's main)
+          FORK_ONLY=$(git rev-list --count "upstream/${UPSTREAM_BRANCH}..HEAD")
+
+          if [ "$FORK_ONLY" -gt 0 ]; then
+            echo "diverged=true" >> "$GITHUB_OUTPUT"
+            echo "fork_only_count=${FORK_ONLY}" >> "$GITHUB_OUTPUT"
+            FORK_ONLY_LOG=$(git log --oneline "upstream/${UPSTREAM_BRANCH}..HEAD" | head -10)
+            echo "fork_only_log<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$FORK_ONLY_LOG" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "::warning::Fork main has ${FORK_ONLY} commits not in upstream — merge will have conflicts"
+          else
+            echo "diverged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for open contrib branches that may conflict
+        id: contrib
+        if: steps.check.outputs.already_up_to_date != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find open PRs from contrib/* branches targeting upstream
+          # These might need rebasing after the sync merges
+          CONTRIB_BRANCHES=$(git branch -r --list 'origin/contrib/*' 2>/dev/null | sed 's|origin/||' || true)
+
+          if [ -n "$CONTRIB_BRANCHES" ]; then
+            CONFLICT_LIST=""
+            UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
+
+            while IFS= read -r branch; do
+              branch=$(echo "$branch" | xargs)
+              [ -z "$branch" ] && continue
+
+              # Check if this branch would conflict with upstream changes
+              # by doing a trial merge
+              if ! git merge-tree $(git merge-base "origin/${branch}" "upstream/${UPSTREAM_BRANCH}") \
+                   "origin/${branch}" "upstream/${UPSTREAM_BRANCH}" > /dev/null 2>&1; then
+                CONFLICT_LIST="${CONFLICT_LIST}- \`${branch}\`\n"
+              fi
+            done <<< "$CONTRIB_BRANCHES"
+
+            if [ -n "$CONFLICT_LIST" ]; then
+              echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+              echo "conflict_branches<<EOF" >> "$GITHUB_OUTPUT"
+              echo -e "$CONFLICT_LIST" >> "$GITHUB_OUTPUT"
+              echo "EOF" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create sync branch and PR
+        if: steps.check.outputs.already_up_to_date != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FORK_PAT }}
+        run: |
+          UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
+          DATE=$(date +%Y-%m-%d)
+          SYNC_BRANCH="upstream-sync/${DATE}"
+          COMMIT_COUNT="${{ steps.check.outputs.commit_count }}"
+          UPSTREAM_SHA="${{ steps.check.outputs.upstream_sha_short }}"
+          DIVERGED="${{ steps.divergence.outputs.diverged }}"
+          HAS_CONFLICTS="${{ steps.contrib.outputs.has_conflicts }}"
+
+          # Delete existing sync branch if it exists (re-run scenario)
+          git push origin --delete "${SYNC_BRANCH}" 2>/dev/null || true
+          git branch -D "${SYNC_BRANCH}" 2>/dev/null || true
+
+          # Create sync branch FROM OUR MAIN and merge upstream into it.
+          # We can't branch from upstream/main directly because our main has
+          # diverged (pipeline overlay commits) — GitHub would reject the PR
+          # with "No commits between main and <branch>".
+          git checkout -b "${SYNC_BRANCH}" origin/main
+          git merge "upstream/${UPSTREAM_BRANCH}" --no-edit \
+            -m "Merge upstream/${UPSTREAM_BRANCH} (${UPSTREAM_SHA}) into ${SYNC_BRANCH}"
+          git push -u origin "${SYNC_BRANCH}"
+
+          # Build commit log for PR body (upstream commits not in our main)
+          MERGE_BASE=$(git merge-base origin/main "upstream/${UPSTREAM_BRANCH}")
+          COMMIT_LOG=$(git log --oneline --no-merges "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}" | head -50)
+          if [ $(git rev-list --count --no-merges "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}") -gt 50 ]; then
+            COMMIT_LOG="${COMMIT_LOG}
+          ... and more (showing first 50)"
+          fi
+
+          # Build warnings section
+          WARNINGS=""
+
+          if [ "$DIVERGED" = "true" ]; then
+            FORK_COUNT="${{ steps.divergence.outputs.fork_only_count }}"
+            FORK_LOG="${{ steps.divergence.outputs.fork_only_log }}"
+            WARNINGS="${WARNINGS}
+          ### :warning: Fork main has diverged
+
+          Your fork's \`main\` has **${FORK_COUNT} commit(s)** not present in upstream.
+          This sync PR may have merge conflicts. You should either:
+          1. Rebase those commits onto \`upstream/main\` and force-push your \`main\`
+          2. Move those commits to a \`personal\` or \`contrib/*\` branch
+
+          Commits only on fork:
+          \`\`\`
+          ${FORK_LOG}
+          \`\`\`
+          "
+          fi
+
+          if [ "$HAS_CONFLICTS" = "true" ]; then
+            CONFLICT_BRANCHES="${{ steps.contrib.outputs.conflict_branches }}"
+            WARNINGS="${WARNINGS}
+          ### :information_source: Contrib branches may need rebasing
+
+          After merging this sync, the following \`contrib/*\` branches may
+          have conflicts with the new upstream changes:
+          ${CONFLICT_BRANCHES}
+          Run \`scripts/fork-manage.sh rebase <branch>\` to rebase them.
+          "
+          fi
+
+          # Create PR
+          TITLE="Upstream sync ${DATE} (${COMMIT_COUNT} commits, ${UPSTREAM_SHA})"
+          BODY="## Upstream Sync
+
+          **Source:** \`manaflow-ai/cmux@${UPSTREAM_BRANCH}\`
+          **Commits:** ${COMMIT_COUNT} new commits (up to \`${UPSTREAM_SHA}\`)
+          **Date:** ${DATE}
+          ${WARNINGS}
+          ### What happens next
+
+          The **review-upstream** workflow will automatically run and post:
+          1. A **diff summary** with categorized changes
+          2. A **security audit** flagging any concerning patterns
+          3. A **supply chain check** for dependency/submodule changes
+
+          **Do not merge until you have reviewed the automated report.**
+
+          ### Upstream commits
+
+          \`\`\`
+          ${COMMIT_LOG}
+          \`\`\`"
+
+          # Use REST API directly — gh pr create has known issues with
+          # branch names containing slashes (cli/cli#10857, #11041).
+          PR_URL=$(gh api repos/${{ github.repository }}/pulls \
+            --method POST \
+            --field base=main \
+            --field head="${SYNC_BRANCH}" \
+            --field title="${TITLE}" \
+            --field body="${BODY}" \
+            --jq '.html_url')
+
+          echo "::notice::PR created: ${PR_URL}"
+
+          # Try to add the upstream-sync label (non-fatal if label doesn't exist)
+          PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+            --method POST \
+            --field labels[]="upstream-sync" 2>/dev/null || true
