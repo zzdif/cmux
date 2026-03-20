@@ -79,7 +79,7 @@ jobs:
           PR_BODY=$(jq -r .body pr_data.json)
           BASE_REF="${{ steps.pr-details.outputs.base_ref }}"
 
-          opencode run -m opencode/anthropic.claude-sonnet-4-6 "
+          opencode run -m opencode/claude-sonnet-4-6 "
           You are reviewing a pull request for a personal fork of cmux (a macOS terminal emulator).
           This review was requested on-demand via a /opencode-review comment.
 

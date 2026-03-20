@@ -73,7 +73,7 @@ jobs:
         run: |
           PR_BODY=$(jq -r .body pr_data.json)
 
-          opencode run -m opencode/anthropic.claude-sonnet-4-6 "
+          opencode run -m opencode/claude-sonnet-4-6 "
           You are reviewing an upstream sync PR for a personal fork of cmux (a macOS terminal emulator).
           The user syncs from manaflow-ai/cmux and wants every upstream change reviewed before merging.
 
