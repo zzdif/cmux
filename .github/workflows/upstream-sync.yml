@@ -22,7 +22,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write
 
 jobs:
   sync:
@@ -32,7 +31,10 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # A fine-grained PAT with Contents + Workflows read/write is required
+          # because the sync branch includes upstream's .github/workflows/ files.
+          # GITHUB_TOKEN cannot push branches that modify workflow files.
+          token: ${{ secrets.FORK_PAT }}
 
       - name: Configure git
         run: |
@@ -131,7 +133,7 @@ jobs:
       - name: Create sync branch and PR
         if: steps.check.outputs.already_up_to_date != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.FORK_PAT }}
         run: |
           UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
           DATE=$(date +%Y-%m-%d)
