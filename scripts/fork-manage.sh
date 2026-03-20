@@ -4,11 +4,11 @@ set -euo pipefail
 # Contribution workflow helper for fork → upstream PRs.
 #
 # Usage:
-#   scripts/contrib.sh new <branch-name>     Create a new contrib branch from latest upstream/main
-#   scripts/contrib.sh rebase [branch-name]  Rebase current (or named) contrib branch onto upstream/main
-#   scripts/contrib.sh pr [branch-name]      Open a PR from contrib branch to upstream
-#   scripts/contrib.sh sync-personal         Rebase the 'personal' branch onto latest main
-#   scripts/contrib.sh status                Show status of all contrib/* branches
+#   scripts/fork-manage.sh new <branch-name>     Create a new contrib branch from latest upstream/main
+#   scripts/fork-manage.sh rebase [branch-name]  Rebase current (or named) contrib branch onto upstream/main
+#   scripts/fork-manage.sh pr [branch-name]      Open a PR from contrib branch to upstream
+#   scripts/fork-manage.sh sync-personal         Rebase the 'personal' branch onto latest main
+#   scripts/fork-manage.sh status                Show status of all contrib/* branches
 #
 # Branch naming convention:
 #   contrib/<name>   — feature branches intended for upstream contribution
@@ -54,7 +54,7 @@ is_contrib_branch() {
 # Command: new
 # ────────────────────────────────────────────────────
 cmd_new() {
-  local name="${1:?Usage: contrib.sh new <branch-name>}"
+  local name="${1:?Usage: fork-manage.sh new <branch-name>}"
   local branch="contrib/${name}"
 
   ensure_upstream_remote
@@ -73,7 +73,7 @@ cmd_new() {
   echo "  1. Make your changes"
   echo "  2. Commit as usual"
   echo "  3. Push:  git push -u origin ${branch}"
-  echo "  4. Open PR to upstream:  scripts/contrib.sh pr"
+  echo "  4. Open PR to upstream:  scripts/fork-manage.sh pr"
 }
 
 # ────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ cmd_rebase() {
   if ! is_contrib_branch "$branch"; then
     err "'${branch}' is not a contrib/* branch"
     echo "Only contrib/* branches should be rebased onto upstream."
-    echo "For the personal branch, use: scripts/contrib.sh sync-personal"
+    echo "For the personal branch, use: scripts/fork-manage.sh sync-personal"
     exit 1
   fi
 
@@ -136,7 +136,7 @@ cmd_pr() {
   behind=$(git rev-list --count "${branch}..${UPSTREAM_REMOTE}/${UPSTREAM_BRANCH}")
   if [ "$behind" -gt 0 ]; then
     warn "Branch is ${behind} commits behind upstream/${UPSTREAM_BRANCH}"
-    echo "Consider rebasing first: scripts/contrib.sh rebase"
+    echo "Consider rebasing first: scripts/fork-manage.sh rebase"
     echo ""
   fi
 
@@ -267,7 +267,7 @@ case "${1:-help}" in
   sync-personal)   shift; cmd_sync_personal "$@" ;;
   status)          shift; cmd_status "$@" ;;
   help|--help|-h)
-    echo "Usage: scripts/contrib.sh <command> [args]"
+    echo "Usage: scripts/fork-manage.sh <command> [args]"
     echo ""
     echo "Commands:"
     echo "  new <name>          Create contrib/<name> branch from latest upstream/main"
@@ -283,7 +283,7 @@ case "${1:-help}" in
     ;;
   *)
     err "Unknown command: $1"
-    echo "Run 'scripts/contrib.sh help' for usage"
+    echo "Run 'scripts/fork-manage.sh help' for usage"
     exit 1
     ;;
 esac

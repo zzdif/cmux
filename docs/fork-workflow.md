@@ -180,7 +180,7 @@ files as new upstream changes, the sync PR will list them. After merging the
 sync PR, rebase those branches:
 
 ```bash
-scripts/contrib.sh rebase contrib/my-feature
+scripts/fork-manage.sh rebase contrib/my-feature
 ```
 
 ---
@@ -293,7 +293,7 @@ Set a spend limit in the Zen dashboard to cap costs.
 
 ```bash
 # Creates contrib/fix-typing-lag from latest upstream/main
-scripts/contrib.sh new fix-typing-lag
+scripts/fork-manage.sh new fix-typing-lag
 ```
 
 This:
@@ -314,10 +314,10 @@ git push -u origin contrib/fix-typing-lag
 
 ```bash
 # Opens the GitHub PR creation page in your browser
-scripts/contrib.sh pr
+scripts/fork-manage.sh pr
 
 # Or specify a branch explicitly
-scripts/contrib.sh pr contrib/fix-typing-lag
+scripts/fork-manage.sh pr contrib/fix-typing-lag
 ```
 
 This:
@@ -331,10 +331,10 @@ If upstream gets new commits while your PR is open:
 
 ```bash
 # Rebase current contrib branch onto latest upstream/main
-scripts/contrib.sh rebase
+scripts/fork-manage.sh rebase
 
 # Or specify a branch
-scripts/contrib.sh rebase contrib/fix-typing-lag
+scripts/fork-manage.sh rebase contrib/fix-typing-lag
 
 # Then force-push
 git push --force-with-lease origin contrib/fix-typing-lag
@@ -387,7 +387,7 @@ git push origin personal
 After merging an upstream sync PR into `main`, rebase your personal branch:
 
 ```bash
-scripts/contrib.sh sync-personal
+scripts/fork-manage.sh sync-personal
 
 # Then force-push
 git push --force-with-lease origin personal
@@ -412,7 +412,7 @@ If you develop a feature on `personal` that you think upstream would want:
 
 ```bash
 # 1. Create a clean contrib branch from upstream/main
-scripts/contrib.sh new my-feature
+scripts/fork-manage.sh new my-feature
 
 # 2. Cherry-pick the relevant commits from personal
 git cherry-pick <commit-sha>   # pick specific commits, not merge commits
@@ -421,7 +421,7 @@ git cherry-pick <commit-sha>   # pick specific commits, not merge commits
 git rebase -i upstream/main
 
 # 4. Push and open PR to upstream
-scripts/contrib.sh pr
+scripts/fork-manage.sh pr
 ```
 
 The key: `contrib/<name>` branches always start from `upstream/main` (clean
@@ -433,7 +433,7 @@ This keeps the PR clean and independent of your personal customizations.
 ## Checking Branch Status
 
 ```bash
-scripts/contrib.sh status
+scripts/fork-manage.sh status
 ```
 
 Example output:
@@ -554,7 +554,7 @@ gh workflow enable "<workflow name>" --repo <your-fork>
 | `.github/scripts/security-audit.sh` | Pattern-based security scanner |
 | `.github/scripts/supply-chain-check.sh` | Dependency and supply chain checker |
 | `.github/scripts/diff-summary.sh` | Categorized diff summary generator |
-| `scripts/contrib.sh` | Contribution workflow helper (CLI) |
+| `scripts/fork-manage.sh` | Contribution workflow helper (CLI) |
 | `docs/fork-workflow.md` | This document |
 
 ---
@@ -571,7 +571,7 @@ directly to `main`. See [Handling Divergence](#handling-divergence).
 The `review-upstream` workflow only triggers on PRs where the head branch
 matches `upstream-sync/*`. Verify the branch name in the PR.
 
-### `contrib.sh pr` says "Could not determine fork owner"
+### `fork-manage.sh pr` says "Could not determine fork owner"
 
 Make sure `gh` (GitHub CLI) is authenticated:
 
@@ -626,7 +626,7 @@ git push --force-with-lease origin main
 Then cherry-pick or rebase those commits onto the appropriate branch
 (`personal` or `contrib/<name>`).
 
-### contrib.sh rebase shows conflicts
+### fork-manage.sh rebase shows conflicts
 
 Resolve conflicts as git instructs, then:
 

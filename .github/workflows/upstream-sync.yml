@@ -184,7 +184,7 @@ jobs:
           After merging this sync, the following \`contrib/*\` branches may
           have conflicts with the new upstream changes:
           ${CONFLICT_BRANCHES}
-          Run \`scripts/contrib.sh rebase <branch>\` to rebase them.
+          Run \`scripts/fork-manage.sh rebase <branch>\` to rebase them.
           "
           fi
 
