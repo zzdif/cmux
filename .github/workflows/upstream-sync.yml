@@ -130,26 +130,40 @@ jobs:
             echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create sync branch and PR
+      - name: Push sync branch
+        id: push
         if: steps.check.outputs.already_up_to_date != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.FORK_PAT }}
         run: |
           UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
           DATE=$(date +%Y-%m-%d)
           SYNC_BRANCH="upstream-sync/${DATE}"
-          COMMIT_COUNT="${{ steps.check.outputs.commit_count }}"
-          UPSTREAM_SHA="${{ steps.check.outputs.upstream_sha_short }}"
-          DIVERGED="${{ steps.divergence.outputs.diverged }}"
-          HAS_CONFLICTS="${{ steps.contrib.outputs.has_conflicts }}"
+
+          echo "sync_branch=${SYNC_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
 
           # Delete existing sync branch if it exists (re-run scenario)
           git push origin --delete "${SYNC_BRANCH}" 2>/dev/null || true
           git branch -D "${SYNC_BRANCH}" 2>/dev/null || true
 
-          # Create sync branch from upstream
+          # Create sync branch from upstream and push
+          # (Uses FORK_PAT from checkout step — required for workflow file changes)
           git checkout -b "${SYNC_BRANCH}" "upstream/${UPSTREAM_BRANCH}"
           git push -u origin "${SYNC_BRANCH}"
+
+      - name: Create PR
+        if: steps.check.outputs.already_up_to_date != 'true'
+        env:
+          # Use GITHUB_TOKEN for PR creation — fine-grained PATs may lack
+          # GraphQL createPullRequest access even with PR write permission.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          UPSTREAM_BRANCH="${{ steps.branch.outputs.upstream_branch }}"
+          SYNC_BRANCH="${{ steps.push.outputs.sync_branch }}"
+          DATE="${{ steps.push.outputs.date }}"
+          COMMIT_COUNT="${{ steps.check.outputs.commit_count }}"
+          UPSTREAM_SHA="${{ steps.check.outputs.upstream_sha_short }}"
+          DIVERGED="${{ steps.divergence.outputs.diverged }}"
+          HAS_CONFLICTS="${{ steps.contrib.outputs.has_conflicts }}"
 
           # Build commit log for PR body
           COMMIT_LOG=$(git log --oneline --no-merges "origin/main..${SYNC_BRANCH}" | head -50)
