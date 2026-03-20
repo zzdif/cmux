@@ -33,7 +33,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: review-reports
-          path: /tmp/review-reports
+          path: .review-reports
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -97,9 +97,9 @@ jobs:
           ### Step 1: Read the script outputs
 
           Read these files that contain the automated analysis results:
-          - /tmp/review-reports/security-audit.md
-          - /tmp/review-reports/supply-chain.md
-          - /tmp/review-reports/diff-summary.md
+          - .review-reports/security-audit.md
+          - .review-reports/supply-chain.md
+          - .review-reports/diff-summary.md
 
           ### Step 2: Review the actual code changes
 
