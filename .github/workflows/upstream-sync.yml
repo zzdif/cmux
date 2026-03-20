@@ -58,13 +58,18 @@ jobs:
           LOCAL_SHA=$(git rev-parse HEAD)
           UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
 
-          if [ "$LOCAL_SHA" = "$UPSTREAM_SHA" ]; then
+          # Count commits on upstream that are NOT yet in our main.
+          # Note: SHAs will always differ because our main has pipeline overlay
+          # commits. What matters is whether upstream has NEW commits we lack.
+          COMMIT_COUNT=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
             echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Fork is already up to date with upstream/${UPSTREAM_BRANCH}"
+            echo "::notice::Fork already contains all upstream commits (0 new)"
           else
-            COMMIT_COUNT=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
             echo "already_up_to_date=false" >> "$GITHUB_OUTPUT"
             echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+            UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
             echo "upstream_sha_short=$(echo $UPSTREAM_SHA | cut -c1-8)" >> "$GITHUB_OUTPUT"
             echo "::notice::Found ${COMMIT_COUNT} new commits from upstream"
           fi
