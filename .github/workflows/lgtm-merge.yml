@@ -1,0 +1,97 @@
+name: LGTM Merge
+
+# Triggered when a PR comment contains "LGTM". Merges the PR into main,
+# then rebases the personal branch onto the updated main.
+#
+# Only the repo owner can trigger this (enforced by actor check).
+# Only processes upstream-sync PRs (enforced by branch prefix check).
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  merge-and-rebase:
+    # Only run when:
+    # 1. Comment is on a PR (not an issue)
+    # 2. Comment body is exactly "LGTM" (prevents "NOT LGTM" etc.)
+    # 3. Commenter is the repo owner
+    if: >
+      github.event.issue.pull_request &&
+      github.event.comment.body == 'LGTM' &&
+      github.event.comment.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR details
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.FORK_PAT }}
+        run: |
+          PR_NUMBER="${{ github.event.issue.number }}"
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          # Get PR head branch
+          HEAD_BRANCH=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.ref')
+          echo "head_branch=${HEAD_BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # Only allow merging upstream-sync PRs via LGTM
+          if [[ ! "$HEAD_BRANCH" == upstream-sync/* ]]; then
+            echo "::error::LGTM merge is only supported for upstream-sync/* PRs (got: ${HEAD_BRANCH})"
+            exit 1
+          fi
+
+      - name: Merge PR
+        env:
+          GH_TOKEN: ${{ secrets.FORK_PAT }}
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+
+          gh pr merge "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --merge \
+            --delete-branch
+
+          echo "::notice::Merged PR #${PR_NUMBER}"
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.FORK_PAT }}
+
+      - name: Rebase personal branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Fetch latest main (post-merge)
+          git fetch origin main personal
+
+          # Check if personal branch exists
+          if ! git rev-parse origin/personal >/dev/null 2>&1; then
+            echo "::warning::No personal branch found, skipping rebase"
+            exit 0
+          fi
+
+          # Rebase personal onto updated main
+          git checkout personal
+          git rebase origin/main
+
+          # Force push the rebased personal branch
+          git push --force-with-lease origin personal
+
+          echo "::notice::Rebased personal branch onto updated main"
+
+      - name: Post confirmation comment
+        env:
+          GH_TOKEN: ${{ secrets.FORK_PAT }}
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+          MAIN_SHA=$(git rev-parse origin/main | cut -c1-8)
+          PERSONAL_SHA=$(git rev-parse HEAD | cut -c1-8)
+
+          gh pr comment "${PR_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --body "Merged and rebased.
+          - \`main\` at \`${MAIN_SHA}\`
+          - \`personal\` rebased to \`${PERSONAL_SHA}\`"
