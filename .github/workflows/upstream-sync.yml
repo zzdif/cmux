@@ -142,6 +142,14 @@ jobs:
           DIVERGED="${{ steps.divergence.outputs.diverged }}"
           HAS_CONFLICTS="${{ steps.contrib.outputs.has_conflicts }}"
 
+          # Delete existing sync branch if it exists (re-run scenario)
+          git push origin --delete "${SYNC_BRANCH}" 2>/dev/null || true
+          git branch -D "${SYNC_BRANCH}" 2>/dev/null || true
+
+          # Create sync branch from upstream and push
+          git checkout -b "${SYNC_BRANCH}" "upstream/${UPSTREAM_BRANCH}"
+          git push -u origin "${SYNC_BRANCH}"
+
           # Build commit log for PR body
           COMMIT_LOG=$(git log --oneline --no-merges "origin/main..${SYNC_BRANCH}" | head -50)
           if [ $(git rev-list --count --no-merges "origin/main..${SYNC_BRANCH}") -gt 50 ]; then
