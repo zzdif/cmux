@@ -58,20 +58,22 @@ jobs:
           LOCAL_SHA=$(git rev-parse HEAD)
           UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
 
-          # Count commits on upstream that are NOT yet in our main.
-          # Note: SHAs will always differ because our main has pipeline overlay
-          # commits. What matters is whether upstream has NEW commits we lack.
-          COMMIT_COUNT=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
+          # Check if upstream has commits not reachable from our main.
+          # Our main = upstream + pipeline overlay, so we use merge-base to
+          # determine if upstream has advanced beyond what we already have.
+          UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
+          MERGE_BASE=$(git merge-base HEAD "upstream/${UPSTREAM_BRANCH}")
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
+          if [ "$UPSTREAM_SHA" = "$MERGE_BASE" ]; then
+            # upstream/main is an ancestor of our HEAD — nothing new
             echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Fork already contains all upstream commits (0 new)"
+            echo "::notice::Fork already contains all upstream commits"
           else
+            COMMIT_COUNT=$(git rev-list --count "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}")
             echo "already_up_to_date=false" >> "$GITHUB_OUTPUT"
             echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
-            UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
             echo "upstream_sha_short=$(echo $UPSTREAM_SHA | cut -c1-8)" >> "$GITHUB_OUTPUT"
-            echo "::notice::Found ${COMMIT_COUNT} new commits from upstream"
+            echo "::notice::Found ${COMMIT_COUNT} new commits from upstream (since merge-base ${MERGE_BASE:0:8})"
           fi
 
       - name: Check fork main divergence
@@ -151,13 +153,19 @@ jobs:
           git push origin --delete "${SYNC_BRANCH}" 2>/dev/null || true
           git branch -D "${SYNC_BRANCH}" 2>/dev/null || true
 
-          # Create sync branch from upstream and push
-          git checkout -b "${SYNC_BRANCH}" "upstream/${UPSTREAM_BRANCH}"
+          # Create sync branch FROM OUR MAIN and merge upstream into it.
+          # We can't branch from upstream/main directly because our main has
+          # diverged (pipeline overlay commits) — GitHub would reject the PR
+          # with "No commits between main and <branch>".
+          git checkout -b "${SYNC_BRANCH}" origin/main
+          git merge "upstream/${UPSTREAM_BRANCH}" --no-edit \
+            -m "Merge upstream/${UPSTREAM_BRANCH} (${UPSTREAM_SHA}) into ${SYNC_BRANCH}"
           git push -u origin "${SYNC_BRANCH}"
 
-          # Build commit log for PR body
-          COMMIT_LOG=$(git log --oneline --no-merges "origin/main..${SYNC_BRANCH}" | head -50)
-          if [ $(git rev-list --count --no-merges "origin/main..${SYNC_BRANCH}") -gt 50 ]; then
+          # Build commit log for PR body (upstream commits not in our main)
+          MERGE_BASE=$(git merge-base origin/main "upstream/${UPSTREAM_BRANCH}")
+          COMMIT_LOG=$(git log --oneline --no-merges "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}" | head -50)
+          if [ $(git rev-list --count --no-merges "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}") -gt 50 ]; then
             COMMIT_LOG="${COMMIT_LOG}
           ... and more (showing first 50)"
           fi
