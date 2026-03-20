@@ -22,10 +22,14 @@ reviewed, and merged, and how to contribute changes back to upstream.
   - [Creating a Contribution Branch](#creating-a-contribution-branch)
   - [Submitting a PR to Upstream](#submitting-a-pr-to-upstream)
   - [Rebasing After Upstream Advances](#rebasing-after-upstream-advances)
-- [Personal Customizations](#personal-customizations)
+- [Personal Customizations & Feature Development](#personal-customizations--feature-development)
   - [Setting Up the Personal Branch](#setting-up-the-personal-branch)
+  - [Developing Features](#developing-features)
   - [Keeping Personal in Sync](#keeping-personal-in-sync)
+  - [Building the App](#building-the-app)
+  - [Contributing a Feature to Upstream](#contributing-a-feature-to-upstream)
 - [Checking Branch Status](#checking-branch-status)
+- [Disabled Upstream Workflows](#disabled-upstream-workflows)
 - [Security Review Details](#security-review-details)
   - [Security Audit](#security-audit)
   - [Supply Chain Check](#supply-chain-check)
@@ -37,8 +41,8 @@ reviewed, and merged, and how to contribute changes back to upstream.
 
 ## Branch Strategy
 
-The fork uses a strict branch convention to keep upstream sync clean and
-contribution flow simple:
+The fork uses a strict branch convention to keep upstream sync clean,
+personal development organized, and contribution flow simple:
 
 ```
 upstream (manaflow-ai/cmux:main)
@@ -47,16 +51,19 @@ upstream (manaflow-ai/cmux:main)
     ▼
 fork/main ◄─── upstream-sync/<date> PR (auto-reviewed, you merge)
     │
-    ├──► contrib/<name>  ──► PR to upstream (contribute back)
+    ├──► personal  ◄─── feature/<name> (your dev work merges here)
+    │    (your build target — customizations + features)
     │
-    └──► personal  (your customizations, never sent upstream)
+    └──► contrib/<name>  ──► PR to upstream (cherry-picked from personal)
+         (branched from upstream/main, NOT from personal)
 ```
 
 | Branch | Purpose | Rule |
 |--------|---------|------|
-| `main` | Reviewed mirror of upstream | **Never commit directly.** Only merge upstream-sync PRs. |
-| `personal` | Long-lived branch for personal customizations | Rebase onto `main` after each sync. Never send upstream. |
-| `contrib/<name>` | Feature branches for upstream contributions | Branch from `upstream/main`. PR to upstream. Delete after merge. |
+| `main` | Reviewed mirror of upstream | **Never commit directly.** Only merge upstream-sync PRs and pipeline changes. |
+| `personal` | Your build target — all customizations and features | Rebase onto `main` after each sync. Build the app from here. |
+| `feature/<name>` | Development branches for new features | Branch from `personal`. Merge into `personal` when done. Delete after merge. |
+| `contrib/<name>` | Branches for upstream contributions | Branch from `upstream/main`. Cherry-pick selected commits. PR to upstream. Delete after merge. |
 | `upstream-sync/<date>` | Automated sync branches | Created by CI. Merged to `main` after review. |
 
 ---
@@ -335,23 +342,44 @@ git push --force-with-lease origin contrib/fix-typing-lag
 
 ---
 
-## Personal Customizations
+## Personal Customizations & Feature Development
 
 ### Setting Up the Personal Branch
 
-The `personal` branch holds your local customizations that you don't intend to
-upstream (e.g., telemetry removal, custom keybindings, entitlement changes).
+The `personal` branch is your **build target** — it holds all your customizations
+and features. You build the app from this branch.
 
 ```bash
 # Create from current main
 git checkout -b personal main
 
-# Make your customizations
+# Make your initial customizations (e.g., disable auto-update, telemetry)
 # ... edit files ...
 git add -A
-git commit -m "personal: disable telemetry, remove camera entitlement"
+git commit -m "personal: disable auto-update, remove camera entitlement"
 
 git push -u origin personal
+```
+
+### Developing Features
+
+When working on a new feature, create a feature branch from `personal`:
+
+```bash
+# Create a feature branch
+git checkout -b feature/my-cool-thing personal
+
+# ... develop, commit as usual ...
+git add -A
+git commit -m "feat: add my cool thing"
+
+# When done, merge into personal
+git checkout personal
+git merge feature/my-cool-thing
+
+# Clean up
+git branch -d feature/my-cool-thing
+git push origin personal
 ```
 
 ### Keeping Personal in Sync
@@ -365,8 +393,40 @@ scripts/contrib.sh sync-personal
 git push --force-with-lease origin personal
 ```
 
-To build the app with your personal customizations, check out the `personal`
-branch and run the build from there.
+This replays all your personal commits (customizations + merged features) on top
+of the latest upstream code. If conflicts arise, they'll only be in files where
+your changes overlap with upstream changes — resolve and continue the rebase.
+
+### Building the App
+
+Always build from the `personal` branch:
+
+```bash
+git checkout personal
+# Then follow the standard build instructions
+```
+
+### Contributing a Feature to Upstream
+
+If you develop a feature on `personal` that you think upstream would want:
+
+```bash
+# 1. Create a clean contrib branch from upstream/main
+scripts/contrib.sh new my-feature
+
+# 2. Cherry-pick the relevant commits from personal
+git cherry-pick <commit-sha>   # pick specific commits, not merge commits
+
+# 3. Clean up if needed (squash, adjust commit messages for upstream standards)
+git rebase -i upstream/main
+
+# 4. Push and open PR to upstream
+scripts/contrib.sh pr
+```
+
+The key: `contrib/<name>` branches always start from `upstream/main` (clean
+upstream code), and you cherry-pick only the commits you want to contribute.
+This keeps the PR clean and independent of your personal customizations.
 
 ---
 
@@ -451,6 +511,35 @@ Groups changed files into categories with icons:
 
 Also lists which high-priority areas changed (App Core, CLI, Shell Integration,
 Remote Daemon, Resources, Scripts) with review guidance.
+
+---
+
+## Disabled Upstream Workflows
+
+The following workflows inherited from upstream are **disabled** on this fork
+because they reference upstream-specific resources (paid CI runners, Apple
+signing credentials, upstream repos, Sentry/Homebrew accounts):
+
+| Workflow | Why Disabled |
+|----------|-------------|
+| `nightly.yml` | Pushes releases to `manaflow-ai/cmux`, uses paid runner, uploads to Sentry |
+| `release.yml` | Signs/notarizes with upstream Apple credentials, publishes to upstream releases |
+| `update-homebrew.yml` | Pushes to `manaflow-ai/homebrew-cmux` |
+| `build-ghosttykit.yml` | Publishes to `manaflow-ai/ghostty`, uses paid runner |
+| `claude.yml` | Uses upstream's Claude Code OAuth token |
+| `test-e2e.yml` | Posts to `manaflow-ai/cmux-dev-artifacts`, uses paid runner |
+| `test-depot.yml` | Uses paid runner, downloads from upstream |
+| `ci-macos-compat.yml` | Uses paid runner, downloads from upstream |
+
+The **CI** workflow (`ci.yml`) is kept enabled — its ubuntu-based jobs
+(`workflow-guard-tests`, `remote-daemon-tests`, `web-typecheck`) run for free.
+Its macOS jobs are gated by a fork guard and will skip automatically.
+
+To re-enable any workflow:
+
+```bash
+gh workflow enable "<workflow name>" --repo <your-fork>
+```
 
 ---
 
