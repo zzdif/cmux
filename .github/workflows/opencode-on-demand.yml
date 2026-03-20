@@ -1,0 +1,185 @@
+name: OpenCode On-Demand Review
+
+# Triggered by commenting /opencode-review on any PR.
+# Runs the security audit scripts first, then passes outputs to OpenCode
+# for AI-powered review. Useful for contrib/* PRs or re-reviewing upstream syncs.
+#
+# Requires GitHub Secret: OPENCODE_API_KEY (from opencode.ai/zen)
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  on-demand-review:
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/opencode-review')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR number
+        id: pr-number
+        run: |
+          echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Get PR details
+        id: pr-details
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/${{ github.repository }}/pulls/${{ steps.pr-number.outputs.number }}" > pr_data.json
+          echo "title=$(jq -r .title pr_data.json)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(jq -r .head.sha pr_data.json)" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r .head.ref pr_data.json)" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$(jq -r .base.ref pr_data.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ steps.pr-details.outputs.head_ref }}
+          fetch-depth: 0
+
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='eyes'
+
+      - name: Run analysis scripts
+        run: |
+          BASE_REF="origin/${{ steps.pr-details.outputs.base_ref }}"
+
+          # Generate diff
+          MERGE_BASE=$(git merge-base "${BASE_REF}" HEAD)
+          git diff "${MERGE_BASE}..HEAD" > /tmp/upstream.diff
+
+          # Run all three scripts
+          bash .github/scripts/diff-summary.sh "${MERGE_BASE}" HEAD > /tmp/diff-summary.md
+          bash .github/scripts/security-audit.sh /tmp/upstream.diff > /tmp/security-audit.md
+          bash .github/scripts/supply-chain-check.sh "${MERGE_BASE}" HEAD > /tmp/supply-chain.md
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Run OpenCode AI review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_PERMISSION: '{ "bash": { "*": "deny", "gh*": "allow", "gh pr review*": "deny", "cat*": "allow", "ls*": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow" } }'
+          PR_NUMBER: ${{ steps.pr-number.outputs.number }}
+          PR_TITLE: ${{ steps.pr-details.outputs.title }}
+        run: |
+          PR_BODY=$(jq -r .body pr_data.json)
+          BASE_REF="${{ steps.pr-details.outputs.base_ref }}"
+
+          opencode run -m opencode/anthropic.claude-sonnet-4-6 "
+          You are reviewing a pull request for a personal fork of cmux (a macOS terminal emulator).
+          This review was requested on-demand via a /opencode-review comment.
+
+          <pr-number>
+          ${PR_NUMBER}
+          </pr-number>
+
+          <pr-title>
+          ${PR_TITLE}
+          </pr-title>
+
+          <pr-description>
+          ${PR_BODY}
+          </pr-description>
+
+          ## Your Task
+
+          Three automated scripts have already analyzed this PR and produced reports.
+          Read them first, then perform a deeper AI-powered review.
+
+          ### Step 1: Read the script outputs
+
+          Read these files that contain the automated analysis results:
+          - /tmp/diff-summary.md
+          - /tmp/security-audit.md
+          - /tmp/supply-chain.md
+
+          ### Step 2: Review the actual code changes
+
+          Use \`git diff origin/${BASE_REF}...HEAD\` and \`git log origin/${BASE_REF}..HEAD --oneline\`
+          to see the actual changes. Read specific files as needed with \`cat\` or \`git show\`.
+
+          ### Step 3: Verify script findings
+
+          For each finding in the security audit and supply chain reports:
+          - Is the finding a real concern, or a false positive?
+          - If real, how severe is it in context?
+          - What is the actual behavior of the flagged code?
+
+          ### Step 4: Find things the scripts missed
+
+          The scripts use pattern matching and may miss:
+          - Logic errors or subtle behavioral changes
+          - Architectural changes that affect security posture
+          - Changes to authentication/authorization flows
+          - Data flow changes (new data being collected, stored, or transmitted)
+          - Removal of security checks or guardrails
+          - Changes to default values that weaken security
+
+          ### Step 5: Post your review
+
+          Post a SINGLE consolidated comment on the PR using the gh CLI.
+          Format your review as follows:
+
+          \`\`\`
+          gh pr comment ${PR_NUMBER} --body '<your review>'
+          \`\`\`
+
+          Your review MUST follow this structure:
+
+          ---
+          ## OpenCode AI Review (On-Demand)
+
+          ### Script Findings Verification
+          For each script finding, state: CONFIRMED / FALSE POSITIVE / NEEDS CONTEXT
+          Include the file path and line number for each finding.
+
+          ### Additional Findings
+          List anything the scripts missed. For each finding include:
+          - **File**: \`path/to/file:line_number\`
+          - **Severity**: CRITICAL / HIGH / MEDIUM / LOW / INFO
+          - **Description**: What the issue is and why it matters
+          - **Context**: The relevant code snippet or behavior
+
+          ### Architectural Impact
+          Brief assessment of how these changes affect the overall app architecture,
+          security posture, or user privacy.
+
+          ### Verdict
+          One of:
+          - SAFE TO MERGE — no concerns found
+          - SAFE TO MERGE WITH NOTES — minor items to be aware of
+          - REVIEW RECOMMENDED — specific items need human judgment
+          - DO NOT MERGE — blocking issues found
+          ---
+
+          IMPORTANT:
+          - Be specific: always cite file paths and line numbers
+          - Be concise: focus on real issues, not style nitpicks
+          - Be honest: if you cannot determine something, say so
+          - Do NOT approve or request changes via gh pr review — only post comments
+          - The user will make the final merge decision
+          "
+
+      - name: React completion
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='rocket'

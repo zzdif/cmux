@@ -1,0 +1,169 @@
+name: OpenCode AI Review
+
+# Runs automatically after the script-based review completes on upstream-sync PRs.
+# Downloads the review artifacts (security audit, supply chain check, diff summary)
+# and asks OpenCode (via Zen) to verify, investigate, and augment the findings.
+#
+# Requires GitHub Secret: OPENCODE_API_KEY (from opencode.ai/zen)
+
+on:
+  workflow_run:
+    workflows: ["Review Upstream Changes"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  ai-review:
+    # Only run if the triggering workflow succeeded and was for an upstream-sync PR
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'upstream-sync/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Download review artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: review-reports
+          path: /tmp/review-reports
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find associated PR number
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          PR_NUMBER=$(gh pr list --head "${HEAD_BRANCH}" --state open --json number -q '.[0].number')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::No open PR found for branch ${HEAD_BRANCH}"
+            exit 1
+          fi
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Found PR #${PR_NUMBER} for branch ${HEAD_BRANCH}"
+
+      - name: Get PR details
+        id: pr-details
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/${{ github.repository }}/pulls/${{ steps.find-pr.outputs.pr_number }}" > pr_data.json
+          echo "title=$(jq -r .title pr_data.json)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(jq -r .head.sha pr_data.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Run OpenCode AI review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_PERMISSION: '{ "bash": { "*": "deny", "gh*": "allow", "gh pr review*": "deny", "cat*": "allow", "ls*": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow" } }'
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          PR_TITLE: ${{ steps.pr-details.outputs.title }}
+        run: |
+          PR_BODY=$(jq -r .body pr_data.json)
+
+          opencode run -m opencode/anthropic.claude-sonnet-4-6 "
+          You are reviewing an upstream sync PR for a personal fork of cmux (a macOS terminal emulator).
+          The user syncs from manaflow-ai/cmux and wants every upstream change reviewed before merging.
+
+          <pr-number>
+          ${PR_NUMBER}
+          </pr-number>
+
+          <pr-title>
+          ${PR_TITLE}
+          </pr-title>
+
+          <pr-description>
+          ${PR_BODY}
+          </pr-description>
+
+          ## Your Task
+
+          Three automated scripts have already analyzed this PR and produced reports.
+          Read them first, then perform a deeper AI-powered review.
+
+          ### Step 1: Read the script outputs
+
+          Read these files that contain the automated analysis results:
+          - /tmp/review-reports/security-audit.md
+          - /tmp/review-reports/supply-chain.md
+          - /tmp/review-reports/diff-summary.md
+
+          ### Step 2: Review the actual code changes
+
+          Use \`git diff origin/main...HEAD\` and \`git log origin/main..HEAD --oneline\` to see the
+          actual changes. Read specific files as needed with \`cat\` or \`git show\`.
+
+          ### Step 3: Verify script findings
+
+          For each finding in the security audit and supply chain reports:
+          - Is the finding a real concern, or a false positive?
+          - If real, how severe is it in context?
+          - What is the actual behavior of the flagged code?
+
+          ### Step 4: Find things the scripts missed
+
+          The scripts use pattern matching and may miss:
+          - Logic errors or subtle behavioral changes
+          - Architectural changes that affect security posture
+          - Changes to authentication/authorization flows
+          - Data flow changes (new data being collected, stored, or transmitted)
+          - Removal of security checks or guardrails
+          - Changes to default values that weaken security
+
+          ### Step 5: Post your review
+
+          Post a SINGLE consolidated comment on the PR using the gh CLI.
+          Format your review as follows:
+
+          \`\`\`
+          gh pr comment ${PR_NUMBER} --body '<your review>'
+          \`\`\`
+
+          Your review MUST follow this structure:
+
+          ---
+          ## OpenCode AI Review
+
+          ### Script Findings Verification
+          For each script finding, state: CONFIRMED / FALSE POSITIVE / NEEDS CONTEXT
+          Include the file path and line number for each finding.
+
+          ### Additional Findings
+          List anything the scripts missed. For each finding include:
+          - **File**: \`path/to/file:line_number\`
+          - **Severity**: CRITICAL / HIGH / MEDIUM / LOW / INFO
+          - **Description**: What the issue is and why it matters
+          - **Context**: The relevant code snippet or behavior
+
+          ### Architectural Impact
+          Brief assessment of how these changes affect the overall app architecture,
+          security posture, or user privacy.
+
+          ### Verdict
+          One of:
+          - SAFE TO MERGE — no concerns found
+          - SAFE TO MERGE WITH NOTES — minor items to be aware of
+          - REVIEW RECOMMENDED — specific items need human judgment
+          - DO NOT MERGE — blocking issues found
+          ---
+
+          IMPORTANT:
+          - Be specific: always cite file paths and line numbers
+          - Be concise: focus on real issues, not style nitpicks
+          - Be honest: if you cannot determine something, say so
+          - Do NOT approve or request changes via gh pr review — only post comments
+          - The user will make the final merge decision
+          "

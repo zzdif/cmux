@@ -1,0 +1,136 @@
+name: Review Upstream Changes
+
+# Runs automatically on PRs from upstream-sync branches.
+# Posts a consolidated review comment with:
+#   1. Diff summary & stats
+#   2. Security audit (pattern-based)
+#   3. Supply chain / dependency check
+# Then uploads outputs as artifacts for the opencode AI review job.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Gate: only run on upstream-sync PRs
+  should-run:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${{ github.head_ref }}" == upstream-sync/* ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping — not an upstream-sync PR"
+          fi
+
+  review:
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate diff
+        id: diff
+        run: |
+          # Get the merge base between PR branch and main
+          MERGE_BASE=$(git merge-base origin/main HEAD)
+          echo "merge_base=${MERGE_BASE}" >> "$GITHUB_OUTPUT"
+
+          # Generate the full diff for analysis scripts
+          git diff "${MERGE_BASE}..HEAD" > /tmp/upstream.diff
+          echo "diff_path=/tmp/upstream.diff" >> "$GITHUB_OUTPUT"
+
+          # Generate diffstat
+          git diff --stat "${MERGE_BASE}..HEAD" > /tmp/diffstat.txt
+          echo "diffstat_path=/tmp/diffstat.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Run diff summary
+        id: summary
+        run: |
+          MERGE_BASE="${{ steps.diff.outputs.merge_base }}"
+          bash .github/scripts/diff-summary.sh "${MERGE_BASE}" HEAD > /tmp/diff-summary.md
+
+      - name: Run security audit
+        id: security
+        run: |
+          bash .github/scripts/security-audit.sh /tmp/upstream.diff > /tmp/security-audit.md
+
+      - name: Run supply chain check
+        id: supplychain
+        run: |
+          MERGE_BASE="${{ steps.diff.outputs.merge_base }}"
+          bash .github/scripts/supply-chain-check.sh "${MERGE_BASE}" HEAD > /tmp/supply-chain.md
+
+      - name: Determine overall status
+        id: status
+        run: |
+          SECURITY_EXIT=0
+          SUPPLY_EXIT=0
+
+          # Check if security audit found HIGH/CRITICAL items
+          if grep -q '🔴' /tmp/security-audit.md; then
+            SECURITY_EXIT=1
+          fi
+          if grep -q '🔴' /tmp/supply-chain.md; then
+            SUPPLY_EXIT=1
+          fi
+
+          if [ $SECURITY_EXIT -ne 0 ] || [ $SUPPLY_EXIT -ne 0 ]; then
+            echo "verdict=**REVIEW REQUIRED** — Findings flagged above need human review before merge." >> "$GITHUB_OUTPUT"
+            echo "status=warning" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=**No critical findings.** Review the diff summary and merge when ready." >> "$GITHUB_OUTPUT"
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DIFF_SUMMARY=$(cat /tmp/diff-summary.md)
+          SECURITY_AUDIT=$(cat /tmp/security-audit.md)
+          SUPPLY_CHAIN=$(cat /tmp/supply-chain.md)
+          VERDICT="${{ steps.status.outputs.verdict }}"
+
+          # Build the comment body
+          cat > /tmp/review-comment.md <<'COMMENT_EOF'
+          # Upstream Sync Review Report
+
+          COMMENT_EOF
+
+          echo "${DIFF_SUMMARY}" >> /tmp/review-comment.md
+          echo "" >> /tmp/review-comment.md
+          echo "${SECURITY_AUDIT}" >> /tmp/review-comment.md
+          echo "" >> /tmp/review-comment.md
+          echo "${SUPPLY_CHAIN}" >> /tmp/review-comment.md
+          echo "" >> /tmp/review-comment.md
+          echo "---" >> /tmp/review-comment.md
+          echo "" >> /tmp/review-comment.md
+          echo "${VERDICT}" >> /tmp/review-comment.md
+
+          # Post as PR comment
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body-file /tmp/review-comment.md
+
+      - name: Upload review artifacts for AI review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: review-reports
+          path: |
+            /tmp/diff-summary.md
+            /tmp/security-audit.md
+            /tmp/supply-chain.md
+            /tmp/upstream.diff
+          retention-days: 7
