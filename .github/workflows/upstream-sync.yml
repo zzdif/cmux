@@ -213,15 +213,13 @@ jobs:
           ${COMMIT_LOG}
           \`\`\`"
 
-          # Use GITHUB_TOKEN for PR creation — fine-grained PATs lack
-          # GraphQL createPullRequest support.
-          GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh pr create \
+          gh pr create \
             --base main \
             --head "${SYNC_BRANCH}" \
             --title "${TITLE}" \
             --body "${BODY}" \
             --label "upstream-sync" 2>/dev/null || \
-          GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh pr create \
+          gh pr create \
             --base main \
             --head "${SYNC_BRANCH}" \
             --title "${TITLE}" \
