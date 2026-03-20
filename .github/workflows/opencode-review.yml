@@ -67,7 +67,7 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENCODE_PERMISSION: '{ "bash": { "*": "deny", "gh*": "allow", "gh pr review*": "deny", "cat*": "allow", "ls*": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow" } }'
+          OPENCODE_PERMISSION: '{ "bash": { "*": "deny", "gh*": "allow", "gh pr review*": "deny", "cat*": "allow", "ls*": "allow", "head*": "allow", "tail*": "allow", "grep*": "allow", "find*": "allow", "wc*": "allow", "diff*": "allow", "file*": "allow", "stat*": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git rev-list*": "allow", "git rev-parse*": "allow" } }'
           PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
           PR_TITLE: ${{ steps.pr-details.outputs.title }}
         run: |
