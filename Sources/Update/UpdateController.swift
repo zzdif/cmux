@@ -98,6 +98,12 @@ class UpdateController {
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     func startUpdaterIfNeeded() {
+        // Skip Sparkle entirely when auto-update is disabled (personal fork build).
+        if UpdateFeedResolver.fallbackFeedURL.isEmpty,
+           let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+           infoURL.isEmpty {
+            return
+        }
         guard !didStartUpdater else { return }
         ensureSparkleInstallationCache()
 #if DEBUG

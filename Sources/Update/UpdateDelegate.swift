@@ -2,7 +2,8 @@ import Sparkle
 import Cocoa
 
 enum UpdateFeedResolver {
-    static let fallbackFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+    // Auto-update disabled for personal fork build.
+    static let fallbackFeedURL = ""
 
     static func resolvedFeedURLString(infoFeedURL: String?) -> (url: String, isNightly: Bool, usedFallback: Bool) {
         guard let infoFeedURL, !infoFeedURL.isEmpty else {

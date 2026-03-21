@@ -3757,7 +3757,8 @@ enum WelcomeSettings {
 
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
-    static let defaultSendAnonymousTelemetry = true
+    // Telemetry disabled by default for personal fork build.
+    static let defaultSendAnonymousTelemetry = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
