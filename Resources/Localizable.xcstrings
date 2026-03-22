@@ -29616,6 +29616,23 @@
         }
       }
     },
+    "dialog.closeTab.messageNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close \"%@\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を閉じます。"
+          }
+        }
+      }
+    },
     "dialog.closeTab.title": {
       "extractionState": "manual",
       "localizations": {
@@ -29810,6 +29827,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のウィンドウと、その %1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
+    "dialog.closePinnedWorkspace.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is pinned. Closing it will close the workspace and all of its panels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはピン留めされています。閉じると、このワークスペースとその中のすべてのパネルが閉じます。"
+          }
+        }
+      }
+    },
+    "dialog.closePinnedWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close pinned workspace?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースを閉じますか？"
           }
         }
       }
@@ -62649,6 +62700,23 @@
         }
       }
     },
+    "sidebar.pinnedWorkspaceProtected.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned workspace. Closing requires confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースです。閉じるには確認が必要です。"
+          }
+        }
+      }
+    },
     "sidebar.folderIcon.dragHint": {
       "extractionState": "manual",
       "localizations": {
@@ -74882,6 +74950,23 @@
         }
       }
     },
+    "workspace.closeProtected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースは閉じられません。先にピンを外してください。"
+          }
+        }
+      }
+    },
     "workspace.placement.afterCurrent": {
       "extractionState": "manual",
       "localizations": {
@@ -77624,6 +77709,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Geçerli Dizini IntelliJ IDEA'da Aç"
+          }
+        }
+      }
+    },
+    "error.remoteDrop.invalidFileURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dropped item is not a file URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップされた項目はファイル URL ではありません。"
+          }
+        }
+      }
+    },
+    "error.remoteDrop.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote drop is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートへのドロップは利用できません。"
+          }
+        }
+      }
+    },
+    "error.remoteDrop.uploadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to upload dropped file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップされたファイルのアップロードに失敗しました: %@"
           }
         }
       }
